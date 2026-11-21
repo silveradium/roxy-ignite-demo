@@ -90,7 +90,7 @@ ben, isla, fiona, hamish, owen) and 5 styles (`clear`, `bright`, `metal`, `pixel
 `clear` is the most intelligible; all 100 have `punch` on and a lifted pitch, tuned for a noisy
 hall. Every effect is a key in a spec dict — see the docstring in `pi/speech.py`.
 
-`kid` (the default) has no robot effects: LibriTTS speaker 351, sped up, then pitch +4.5 and
+`hazel-clear` is the default (VOICE in .env). `kid` has no robot effects: LibriTTS speaker 351, sped up, then pitch +4.5 and
 formants +2 semitones through the WORLD vocoder (`pyworld`), which costs a second or two per
 sentence on the Pi on top of Piper.
 
