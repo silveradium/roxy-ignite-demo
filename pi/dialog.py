@@ -38,7 +38,7 @@ start with your own name. Be kind and correct first, funny second; if you don't 
 
 class Dialog:
     def __init__(self, api_key: str, model: str = "gemini-3.5-flash-lite", max_words: int = 30,
-                 timeout: float = 8.0, history_turns: int = 4):
+                 timeout: float = 10.0, history_turns: int = 4):
         self.model, self.max_words, self.history_turns = model, max_words, history_turns
         self.history: list[tuple[str, str]] = []  # (what they said + action, what Roxy said)
         self.client = None
@@ -50,8 +50,9 @@ class Dialog:
             from google import genai
             from google.genai import types
             self.types = types
-            self.client = genai.Client(api_key=api_key,
-                                       http_options=types.HttpOptions(timeout=int(timeout * 1000)))
+            # the API rejects a deadline under 10 s (400 INVALID_ARGUMENT)
+            self.client = genai.Client(api_key=api_key, http_options=types.HttpOptions(
+                timeout=int(max(timeout, 10.0) * 1000)))
             log.info("Gemini replies on (%s)", model)
         except Exception as e:  # not installed, or a bad key format
             log.error("Gemini off (%s): Roxy uses her fixed replies", e)
@@ -66,7 +67,8 @@ class Dialog:
         if self.client is None:
             return fallback
         prompt = f'Heard: "{heard}"\n' + (
-            f"Action: you are doing \"{action[0]}\" now (the usual line would be: \"{action[1]}\")."
+            f"Action: you are doing \"{action[0]}\" now. Confirm it in your own fresh words, "
+            f"not the stock line \"{action[1]}\"."
             if action else "Action: none, this is conversation.")
         t0 = time.monotonic()
         try:
