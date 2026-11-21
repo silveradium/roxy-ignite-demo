@@ -8,6 +8,13 @@ Read this first if you are picking the project up. It records *why* things are t
 so decisions already settled don't get reopened. The parent project is
 `../fyp/Diectic-VLA-FYP`; paths below that start `FYP/` point into it.
 
+**2026-11-21, later: DJI tested on the MacBook Air (dry run, Pi off).** USB-C receiver shows as
+`DJI MIC MINI` (Core Audio, 48 kHz); `MIC_DEVICE=DJI`. Moonshine transcribed cleanly and heard
+"Hey roxy ..." spelled right from across the room. Background chatter / videos produce
+made-up sentences ("visit our website ..."); the wake filter drops them. macOS: no apt —
+`laptop-setup.sh` now handles Darwin (Python 3.11 venv, the sounddevice wheel bundles PortAudio).
+The first open of the DJI once hung; a retry worked. Next: a live run with the Pi on.
+
 ## Pick up here: the mic on the other laptop
 
 Only the laptop half moves; the Pi keeps its own copy and its own `.env`.

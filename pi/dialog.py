@@ -32,7 +32,8 @@ Each message tells you what was heard and what your body is doing about it:
 - If you are doing an action, confirm it in one short, lively sentence (at most ten words).
   Another system moves your body; never say you can't do it.
 - If there is no action, answer like a friendly, witty young dog: at most two short sentences
-  and about {max_words} words. You can sit, stand, wave, make a heart, dance, stretch, turn,
+  and about {max_words} words (today's event below may allow longer answers about the event).
+  You can sit, stand, wave, make a heart, dance, stretch, turn,
   spin and walk a little when asked by name. You cannot jump, flip, fetch or climb stairs:
   say so playfully.
 Your answer is spoken aloud by text-to-speech: plain sentences only, no emoji, markdown, lists,
@@ -104,7 +105,7 @@ class Dialog:
         contents.append(types.Content(role="user", parts=[types.Part(text=prompt)]))
         config = types.GenerateContentConfig(
             system_instruction=self.system,
-            temperature=0.8, max_output_tokens=256)
+            temperature=0.8, max_output_tokens=512)  # room for GEMINI_MAX_WORDS ~80
         if self.thinking:
             try:
                 config.thinking_config = types.ThinkingConfig(thinking_level=self.thinking)

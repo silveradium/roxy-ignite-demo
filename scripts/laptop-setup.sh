@@ -4,10 +4,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-sudo apt-get update
-sudo apt-get install -y --no-install-recommends python3-venv python3-pip libportaudio2
+PY=python3
+if [ "$(uname)" = Darwin ]; then
+    # macOS: the sounddevice wheel bundles PortAudio, so nothing to install system-wide.
+    # numpy<2 has no wheels past Python 3.12; prefer an older python3.x if there is one.
+    for v in 3.11 3.12 3.10; do command -v "python$v" >/dev/null && { PY="python$v"; break; }; done
+    echo "== macOS: using $PY. The first mic open asks for Microphone access for your terminal/VS Code."
+else
+    sudo apt-get update
+    sudo apt-get install -y --no-install-recommends python3-venv python3-pip libportaudio2
+fi
 
-[ -d venv-laptop ] || python3 -m venv venv-laptop
+[ -d venv-laptop ] || "$PY" -m venv venv-laptop
 ./venv-laptop/bin/pip install --upgrade pip
 ./venv-laptop/bin/pip install -r requirements-laptop.txt
 
