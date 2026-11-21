@@ -59,7 +59,8 @@ class Demo:
         self.tasks: set[asyncio.Task] = set()
         self.dialog = dialog.Dialog(env("GEMINI_API_KEY"), env("GEMINI_MODEL", "gemini-3.5-flash-lite"),
                                     int(env("GEMINI_MAX_WORDS", "30") or 30),
-                                    float(env("GEMINI_TIMEOUT", "10") or 10))
+                                    float(env("GEMINI_TIMEOUT", "10") or 10),
+                                    event=env("GEMINI_EVENT"))
 
     # --- the one place a command is carried out ---------------------------------------------
     async def say(self, text: str) -> None:

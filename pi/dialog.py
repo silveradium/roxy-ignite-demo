@@ -12,11 +12,15 @@ delays an action.
 Adapted from the FYP's ros_ws/src/voice/voice/dialog_node.py (same google-genai client, persona
 prompt, short history and minimal thinking), without its JSON intent schema: here the keywords
 already chose the action. Settings in .env: GEMINI_API_KEY, GEMINI_MODEL, GEMINI_MAX_WORDS,
-GEMINI_TIMEOUT.
+GEMINI_TIMEOUT, and GEMINI_EVENT: the name of a file in pi/events/ (atlas -> events/atlas.txt)
+describing today's event and audience, added to the persona. Empty: no event.
 """
 
 import logging
+import pathlib
 import time
+
+EVENTS_DIR = pathlib.Path(__file__).parent / "events"
 
 log = logging.getLogger(__name__)
 
@@ -38,8 +42,16 @@ start with your own name. Be kind and correct first, funny second; if you don't 
 
 class Dialog:
     def __init__(self, api_key: str, model: str = "gemini-3.5-flash-lite", max_words: int = 30,
-                 timeout: float = 10.0, history_turns: int = 4):
+                 timeout: float = 10.0, history_turns: int = 4, event: str = ""):
         self.model, self.max_words, self.history_turns = model, max_words, history_turns
+        self.system = PERSONA.format(max_words=max_words)
+        if event:
+            path = EVENTS_DIR / f"{pathlib.Path(event).name}.txt"  # a name, never a path
+            try:
+                self.system += "\n\n" + path.read_text().strip()
+                log.info("event context: %s", path.name)
+            except OSError:
+                log.error("GEMINI_EVENT=%s but %s doesn't exist: no event context", event, path)
         self.history: list[tuple[str, str]] = []  # (what they said + action, what Roxy said)
         self.client = None
         self.thinking = "minimal"
@@ -91,7 +103,7 @@ class Dialog:
             contents.append(types.Content(role="model", parts=[types.Part(text=answered)]))
         contents.append(types.Content(role="user", parts=[types.Part(text=prompt)]))
         config = types.GenerateContentConfig(
-            system_instruction=PERSONA.format(max_words=self.max_words),
+            system_instruction=self.system,
             temperature=0.8, max_output_tokens=256)
         if self.thinking:
             try:
