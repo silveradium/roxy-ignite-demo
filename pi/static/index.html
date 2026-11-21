@@ -1,0 +1,170 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roxy</title>
+<!-- No CDNs anywhere: on the robot's AP there is no internet, so everything is inline. -->
+<style>
+  :root { color-scheme: dark; --bg:#12141a; --fg:#e9ecf2; --dim:#8b93a7; --line:#262a35; --on:#4ade80; --off:#f87171; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 16px; background:var(--bg); color:var(--fg);
+         font:16px/1.5 ui-sans-serif, system-ui, sans-serif; display:flex;
+         flex-direction:column; gap:20px; align-items:center; }
+  .wrap { width:100%; max-width:560px; display:flex; flex-direction:column; gap:20px; }
+  h1 { margin:0; font-size:22px; font-weight:650; letter-spacing:-.01em; }
+  .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--off); flex:none; }
+  .dot.on { background:var(--on); }
+  .dim { color:var(--dim); font-size:14px; }
+  button { font:inherit; color:var(--fg); background:#1c2029; border:1px solid var(--line);
+           border-radius:10px; padding:11px 16px; cursor:pointer; }
+  button:hover:not(:disabled) { background:#242a36; }
+  button:disabled { opacity:.45; cursor:default; }
+  #say { font-size:19px; font-weight:600; padding:20px; width:100%;
+         background:#1d4ed8; border-color:#2a5ae8; }
+  #say:hover:not(:disabled) { background:#2563eb; }
+  select, input { font:inherit; color:var(--fg); background:#1c2029;
+                  border:1px solid var(--line); border-radius:10px; padding:10px; }
+  input { flex:1; min-width:0; }
+  #log { font:13px/1.6 ui-monospace, monospace; color:var(--dim); background:#0e1016;
+         border:1px solid var(--line); border-radius:10px; padding:12px;
+         height:200px; overflow-y:auto; white-space:pre-wrap; }
+  fieldset { border:1px solid var(--line); border-radius:10px; margin:0; padding:14px; }
+  #heard-now { font-size:22px; font-weight:600; line-height:1.35; min-height:30px; word-break:break-word; }
+  #heard-now.idle { color:var(--dim); font-weight:400; font-size:16px; }
+  .tag { display:inline-block; font-size:13px; font-weight:600; border-radius:999px; padding:2px 10px;
+         margin-top:8px; border:1px solid var(--line); color:var(--dim); }
+  .tag.go { color:#0b1a10; background:var(--on); border-color:var(--on); }
+  #heard-list { list-style:none; margin:12px 0 0; padding:0; display:flex; flex-direction:column; gap:4px;
+                font-size:14px; color:var(--dim); }
+  #heard-list li { display:flex; gap:8px; justify-content:space-between; }
+  #heard-list .what { color:var(--fg); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #heard-list .res { flex:none; }
+  #heard-list .res.go { color:var(--on); }
+  legend { padding:0 6px; font-size:13px; color:var(--dim); }
+</style>
+
+<div class="wrap">
+  <h1>Roxy</h1>
+  <div class="row dim">
+    <span class="dot" id="d-link"></span><span id="s-link">connecting</span>
+    <span class="dot" id="d-robot"></span><span id="s-robot">robot</span>
+    <span class="dot" id="d-speak"></span><span>speaking</span>
+  </div>
+
+  <fieldset><legend>heard (laptop mic)</legend>
+    <div id="heard-now" class="idle">Nothing yet. Say "Roxy, sit down".</div>
+    <div id="heard-tag"></div>
+    <ul id="heard-list"></ul>
+  </fieldset>
+
+  <button id="say" disabled>Say it</button>
+
+  <fieldset><legend>say something else</legend>
+    <div class="row">
+      <input id="text" placeholder="type a line and press enter">
+      <button id="send" disabled>Say</button>
+    </div>
+  </fieldset>
+
+  <fieldset><legend>voice</legend>
+    <div class="row"><select id="voice"></select></div>
+  </fieldset>
+
+  <fieldset><legend>actions</legend>
+    <div class="row" id="intents"></div>
+  </fieldset>
+
+  <div id="log"></div>
+</div>
+
+<script>
+// Same origin as the page, so this works over the robot AP with no address baked in.
+const url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
+const $ = id => document.getElementById(id);
+let ws, state = {};
+
+function line(t) {
+  const at = new Date().toTimeString().slice(0, 8);
+  $("log").textContent += `${at}  ${t}\n`;
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+function dot(id, on) { $(id).classList.toggle("on", !!on); }
+
+function send(msg) { if (ws?.readyState === 1) ws.send(JSON.stringify(msg)); }
+
+function render(s) {
+  state = s;
+  dot("d-robot", s.robot);
+  $("s-robot").textContent = s.robot ? "robot connected" : "robot offline";
+  dot("d-speak", s.speaking);
+  $("say").textContent = s.sentence ? `Say: "${s.sentence}"` : "Say it";
+
+  if ($("voice").options.length !== (s.voices || []).length) {
+    $("voice").replaceChildren(...s.voices.map(v => new Option(v, v)));
+  }
+  $("voice").value = s.voice;
+
+  if ($("intents").children.length !== (s.intents || []).length) {
+    $("intents").replaceChildren(...s.intents.map(name => {
+      const b = document.createElement("button");
+      b.textContent = name;
+      b.onclick = () => send({ type: "intent", name });
+      return b;
+    }));
+  }
+}
+
+// What the laptop mic heard: the latest sentence big, then a short history.
+function result(m) {
+  if (!m.wake) return { text: "ignored: no \u201cRoxy\u201d", go: false };
+  return m.intent ? { text: "\u2192 " + m.intent, go: true } : { text: "no command", go: false };
+}
+function heard(m) {
+  const r = result(m);
+  $("heard-now").classList.remove("idle");
+  $("heard-now").textContent = "\u201c" + m.text + "\u201d";
+  const tag = document.createElement("span");
+  tag.className = "tag" + (r.go ? " go" : "");
+  tag.textContent = r.text;
+  $("heard-tag").replaceChildren(tag);
+  const li = document.createElement("li");
+  const what = document.createElement("span"); what.className = "what"; what.textContent = m.text;
+  const res = document.createElement("span"); res.className = "res" + (r.go ? " go" : ""); res.textContent = r.text;
+  li.append(what, res);
+  $("heard-list").prepend(li);
+  while ($("heard-list").children.length > 8) $("heard-list").lastChild.remove();
+}
+
+function connect() {
+  ws = new WebSocket(url);
+  ws.onopen = () => {
+    dot("d-link", true);
+    $("s-link").textContent = "connected";
+    $("say").disabled = $("send").disabled = false;
+    line("connected to the Pi");
+  };
+  ws.onclose = () => {
+    dot("d-link", false);
+    $("s-link").textContent = "reconnecting";
+    $("say").disabled = $("send").disabled = true;
+    setTimeout(connect, 1500);  // demos get unplugged; come back by ourselves
+  };
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "state") render(msg);
+    else if (msg.type === "log") line(msg.text);
+    else if (msg.type === "heard") heard(msg);
+  };
+}
+
+$("say").onclick = () => send({ type: "say", text: state.sentence || "" });
+$("send").onclick = () => {
+  const t = $("text").value.trim();
+  if (t) { send({ type: "say", text: t }); $("text").value = ""; }
+};
+$("text").onkeydown = e => { if (e.key === "Enter") $("send").click(); };
+$("voice").onchange = () => send({ type: "voice", name: $("voice").value });
+
+connect();
+</script>

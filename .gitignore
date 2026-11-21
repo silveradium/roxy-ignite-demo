@@ -1,0 +1,8 @@
+.env
+venv/
+venv-laptop/
+__pycache__/
+*.pyc
+piper-voices/
+models/
+*.wav

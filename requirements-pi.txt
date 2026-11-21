@@ -1,0 +1,10 @@
+# Stages 1-2: speech + the robot link. Install on the Pi.
+aiohttp
+numpy<2
+piper-tts
+unitree_webrtc_connect
+python-dotenv
+# the kid voice's pitch + formant shift; pyworld 0.3.5 still imports pkg_resources
+pyworld
+setuptools<81
+# apt: sox (voice effects), alsa-utils (aplay)

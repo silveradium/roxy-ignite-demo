@@ -1,0 +1,9 @@
+# Stages 3-4: camera + hand pose. Heavy, so kept out of requirements-pi.txt.
+# numpy<2 again: requirements-pi.txt pins it, and a separate pip run would otherwise upgrade it.
+numpy<2
+mediapipe
+ai-edge-litert
+# mediapipe needs opencv-contrib-python and unitree_webrtc_connect needs opencv-python; both
+# provide cv2, so pin them to the same version, one that also works with numpy 1.x (5.x doesn't)
+opencv-python==4.11.0.86
+opencv-contrib-python==4.11.0.86

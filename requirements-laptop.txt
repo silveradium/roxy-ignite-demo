@@ -1,0 +1,6 @@
+# The mic half, on the laptop (the Bluetooth mic can't pair to the Pi).
+moonshine-voice
+sounddevice
+websockets
+numpy<2
+python-dotenv
