@@ -31,6 +31,7 @@ from aiohttp import WSMsgType, web
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import commands  # noqa: E402
+import dialog  # noqa: E402
 import speech  # noqa: E402
 import voices  # noqa: E402
 from audio import Speaker  # noqa: E402
@@ -56,6 +57,9 @@ class Demo:
         self.clients: set[web.WebSocketResponse] = set()
         self.gesture_stop = threading.Event()
         self.tasks: set[asyncio.Task] = set()
+        self.dialog = dialog.Dialog(env("GEMINI_API_KEY"), env("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+                                    int(env("GEMINI_MAX_WORDS", "30") or 30),
+                                    float(env("GEMINI_TIMEOUT", "8") or 8))
 
     # --- the one place a command is carried out ---------------------------------------------
     async def say(self, text: str) -> None:
@@ -66,12 +70,15 @@ class Demo:
         if wav:
             self.speaker.play(wav)
 
-    async def do_intent(self, intent: str) -> str:
-        action, reply = commands.resolve(intent)
-        if action is None and reply is None:
+    async def do_intent(self, intent: str, reply: asyncio.Task | None = None) -> str:
+        """Act and speak. `reply`, when given, is a task that comes back with the words to say
+        (Gemini, for voice); otherwise the intent's fixed line."""
+        action, fixed = commands.resolve(intent)
+        if action is None and fixed is None:
             return f"unknown intent {intent!r}"
         # talk while it moves: the robot only answers a trick once it has finished (~17 s for a dance)
-        spoken = asyncio.create_task(self.say(reply)) if reply else None
+        spoken = (asyncio.create_task(self.speak_reply(reply)) if reply
+                  else asyncio.create_task(self.say(fixed)) if fixed else None)
         if action is not None:
             name, parameter = action
             ok = await self.robot.act(name, parameter)
@@ -100,12 +107,36 @@ class Demo:
         await self.do_intent(intent)
         await self.broadcast(self.state())
 
+    async def speak_reply(self, reply: asyncio.Task) -> None:
+        """Wait for Gemini's words (or the fallback), show them on the page, say them."""
+        text = await reply
+        if text:
+            await self.broadcast({"type": "reply", "text": text})
+            await self.say(text)
+
     async def on_transcript(self, text: str) -> None:
+        """A sentence with the wake word. Keywords decide the action, at once; Gemini only
+        writes what Roxy says (dialog.py). "stop" never waits for Gemini."""
         intent = commands.match(text)
+        if intent != "stop" and self.speaker.busy():
+            # the mic hears Roxy too: never answer her own voice ("I'm Roxy!" has the wake word)
+            await self.broadcast({"type": "heard", "text": text, "wake": True, "intent": None,
+                                  "note": "ignored: Roxy was talking"})
+            await self.log(f"heard while Roxy was talking, ignored: {text!r}")
+            return
         await self.broadcast({"type": "heard", "text": text, "wake": True, "intent": intent})
-        await self.log(f"heard: {text!r} -> {intent or 'ignored'}")
+        await self.log(f"heard: {text!r} -> {intent or ('chat' if self.dialog.on else 'ignored')}")
+        if intent == "stop" or not self.dialog.on:
+            if intent:
+                await self.do_intent(intent)
+            return
+        fixed = commands.resolve(intent)[1] if intent else None
+        reply = asyncio.create_task(asyncio.to_thread(
+            self.dialog.reply, text, (intent, fixed) if intent else None))
         if intent:
-            await self.do_intent(intent)
+            await self.do_intent(intent, reply)
+        else:
+            await self.speak_reply(reply)
 
     # --- talking to the page ----------------------------------------------------------------
     async def log(self, text: str) -> None:

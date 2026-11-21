@@ -4,6 +4,8 @@ numpy<2
 piper-tts
 unitree_webrtc_connect
 python-dotenv
+# Roxy's spoken replies to the mic (pi/dialog.py); optional, she falls back to fixed lines
+google-genai
 # the kid voice's pitch + formant shift; pyworld 0.3.5 still imports pkg_resources
 pyworld
 setuptools<81

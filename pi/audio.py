@@ -13,6 +13,7 @@ import logging
 import queue
 import subprocess
 import threading
+import time
 import wave
 
 import numpy as np
@@ -42,7 +43,13 @@ class Speaker:
         self.device, self.gain_db = device, gain_db
         self.clips: queue.Queue[bytes] = queue.Queue()
         self.speaking = False
+        self.quiet_at = 0.0  # monotonic time the last clip ended
         threading.Thread(target=self._loop, daemon=True).start()
+
+    def busy(self, tail: float = 2.0) -> bool:
+        """Speaking, or stopped less than `tail` s ago: a mic in the room is still hearing Roxy
+        (the transcriber finishes a line about a second after the sound stops)."""
+        return self.speaking or time.monotonic() - self.quiet_at < tail
 
     def play(self, wav: bytes) -> None:
         """Queue a clip. Returns at once; playback happens on the worker thread."""
@@ -60,3 +67,4 @@ class Speaker:
                 log.error("playback failed: %s", e)
             if self.clips.empty():
                 self.speaking = False
+                self.quiet_at = time.monotonic()

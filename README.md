@@ -94,6 +94,20 @@ hall. Every effect is a key in a spec dict — see the docstring in `pi/speech.p
 formants +2 semitones through the WORLD vocoder (`pyworld`), which costs a second or two per
 sentence on the Pi on top of Piper.
 
+## Spoken replies (Gemini)
+
+With `GEMINI_API_KEY` in the **Pi's** `.env` (and internet on the Pi), what Roxy *says* to the
+laptop mic comes from Gemini (`pi/dialog.py`). What she *does* is still decided by keywords
+(`pi/commands.py`), straight away:
+
+    "Roxy, could you sit down please?"  -> sits at once; Gemini writes the confirmation
+    "Roxy, how are you?"                -> no action; Gemini answers
+    "stop"                              -> stops, with the fixed "Stopping.", never waits for Gemini
+
+Buttons and gestures keep their fixed lines. Sentences heard while Roxy is talking are ignored
+(except stop), so the mic never answers her own voice. No key, no internet or a Gemini error:
+she falls back to the fixed lines. `GEMINI_MODEL`, `GEMINI_MAX_WORDS`, `GEMINI_TIMEOUT` tune it.
+
 ## Stages
 
 1. **Button -> speech.** Laptop button -> Pi -> Piper -> the Pi's speaker. No robot needed. *Done.*

@@ -40,6 +40,7 @@
   #heard-list .what { color:var(--fg); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #heard-list .res { flex:none; }
   #heard-list .res.go { color:var(--on); }
+  #heard-reply { margin-top:8px; font-style:italic; }
   legend { padding:0 6px; font-size:13px; color:var(--dim); }
 </style>
 
@@ -54,6 +55,7 @@
   <fieldset><legend>heard (laptop mic)</legend>
     <div id="heard-now" class="idle">Nothing yet. Say "Roxy, sit down".</div>
     <div id="heard-tag"></div>
+    <div id="heard-reply" class="dim"></div>
     <ul id="heard-list"></ul>
   </fieldset>
 
@@ -117,6 +119,7 @@ function render(s) {
 
 // What the laptop mic heard: the latest sentence big, then a short history.
 function result(m) {
+  if (m.note) return { text: m.note, go: false };
   if (!m.wake) return { text: "ignored: no \u201cRoxy\u201d", go: false };
   return m.intent ? { text: "\u2192 " + m.intent, go: true } : { text: "no command", go: false };
 }
@@ -128,6 +131,7 @@ function heard(m) {
   tag.className = "tag" + (r.go ? " go" : "");
   tag.textContent = r.text;
   $("heard-tag").replaceChildren(tag);
+  $("heard-reply").textContent = "";
   const li = document.createElement("li");
   const what = document.createElement("span"); what.className = "what"; what.textContent = m.text;
   const res = document.createElement("span"); res.className = "res" + (r.go ? " go" : ""); res.textContent = r.text;
@@ -155,6 +159,7 @@ function connect() {
     if (msg.type === "state") render(msg);
     else if (msg.type === "log") line(msg.text);
     else if (msg.type === "heard") heard(msg);
+    else if (msg.type === "reply") $("heard-reply").textContent = "Roxy: " + msg.text;
   };
 }
 
