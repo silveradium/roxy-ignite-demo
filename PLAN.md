@@ -1,256 +1,159 @@
 # Plan
 
-Status: **2026-11-20.** Scaffold written, nothing run against hardware. No Pi and no robot in
-hand yet.
+Status: **2026-11-21.** Everything below runs on the real hardware (Pi 5, Go2 Air, Orbbec Gemini
+335, USB speaker) and was shown at the Atlas promotional event. **Next: test the DJI mic on the
+other laptop** (it has USB-C; this laptop's 3.5 mm jack can't take the DJI receiver).
 
 Read this first if you are picking the project up. It records *why* things are the way they are,
 so decisions already settled don't get reopened. The parent project is
-`../Diectic-VLA-FYP` and paths below that start `../Diectic-VLA-FYP/` point into it.
+`../fyp/Diectic-VLA-FYP`; paths below that start `FYP/` point into it.
+
+## Pick up here: the mic on the other laptop
+
+Only the laptop half moves; the Pi keeps its own copy and its own `.env`.
+
+1. `git clone git@github.com:silveradium/roxy-ignite-demo.git && cd roxy-ignite-demo`
+2. `bash scripts/laptop-setup.sh` (apt + `venv-laptop`). If pip fails on numpy, that machine has
+   Python 3.13: delete the `numpy<2` line from `requirements-laptop.txt` (only the Pi needs it).
+3. Plug the DJI receiver into **USB-C**. Settings → Sound → Input → the DJI, and keep
+   `MIC_DEVICE=default`; or `./venv-laptop/bin/python -m sounddevice` and set `MIC_DEVICE=DJI`
+   (any substring of its name).
+4. `cp .env.example .env`, then set `PI_URL=ws://<pi>:8080/ws` (`getent hosts raspberrypi.local`).
+   The laptop needs no keys: Gemini and the robot are the Pi's business.
+5. First run with internet: Moonshine downloads ~260 MB to `~/.cache/moonshine_voice/` (or copy
+   that folder over from this laptop).
+6. `./venv-laptop/bin/python laptop/listen.py --dry-run` to see what it hears without moving the
+   dog, then without `--dry-run`. Watch the page's **heard** panel (`http://<pi>:8080`).
+7. **Only one listener at a time**, or every command is sent twice. Stop the one on this laptop.
+
+What to check: does the DJI fix the name ("Roxy" came out as Roxas / Proxy / Oxy / rocksy on
+the built-in mic at the venue; `NAMES`/`LOOSE` in `laptop/listen.py` accept those)? Add any new
+mishearing there.
 
 ## What this is
 
-A demo that runs on a Raspberry Pi 5 with a Unitree Go2 Air, needing **no router and no
-internet**. The robot broadcasts its own Wi-Fi; the Pi joins it; the laptop joins it too. Press a
-button on the laptop and Roxy speaks. Later, a hand gesture triggers the same actions.
-
 ```
-laptop browser  --HTTP/WS--> |      | --WebRTC--> Go2 Air      robot's own AP
-laptop mic      --WS------>  |  Pi  | --aplay-->  speaker      no router, no internet
-                             |      | <--USB----  Orbbec 335   (stage 3)
+LAPTOP                                PI 5 (pi/server.py, one asyncio process)          OUT
+mic ─ Moonshine ─ wake filter ─WS──▶  commands.match() ─▶ robot.act() ─WebRTC─────────▶ Go2
+                                      dialog.py ─ Gemini ─▶ words ─▶ Piper ─▶ aplay ───▶ USB speaker
+browser (buttons, heard panel) ─WS─▶  do_intent()
+                                      gestures.py ◀─ Orbbec (USB, MJPEG)
 ```
 
-The point is an architecture test: the Pi becomes the middleman instead of the laptop. The
-parent project has the laptop in the middle, running ROS over DDS to three machines. Here the Pi
-owns the robot link, the camera and the speech, and the laptop only triggers things.
+- **Keywords decide every action** (`commands.py`), at once. **Gemini only writes the words**
+  for voice (`dialog.py`), told which action is happening; no keyword = conversation. "stop",
+  buttons and gestures keep fixed lines. No key / no internet / an error: fixed lines.
+- The laptop decides *whether* a sentence was for Roxy (wake word); the Pi decides *what it
+  means*. Sentences without the wake word still reach the page (display only).
+- Sentences heard while Roxy is speaking (or < 2 s after) are dropped, except stop, so the mic
+  never answers her own voice.
 
 ## Status
 
 | | |
 |---|---|
-| `pi/server.py` | written, **never run** |
-| `pi/speech.py` | copied verbatim from the parent repo, works there |
-| `pi/voices.py` | copied verbatim, imports clean, 102 voices resolve |
-| `pi/audio.py` | `boost()` copied from the parent repo; the `aplay` path is untested |
-| `pi/robot.py` | written from the library's own examples, **never run** |
-| `pi/commands.py` | written and unit-checked by hand (matching verified) |
-| `pi/static/index.html` | written, **never loaded in a browser** |
-| `laptop/listen.py` | written, wake filter verified; the Moonshine path is untested |
-| `pi/camera.py` | **stub**, stage 3 |
-| `pi/gestures.py` | ported from `../hand-gesture-recognition-mediapipe` (20-class retrain of 2026-11-20); ~21 fps live on the Pi; sign -> intent mapping still empty |
+| `pi/server.py` | runs on the Pi; robot reconnects every 5 s; commands run concurrently so "stop" never waits behind a dance |
+| `pi/robot.py` | WebRTC `LocalSTA` to the Go2 (firmware in **MCF** mode); tricks + timed turns/walks; logs refusals |
+| `pi/commands.py` | keyword matcher, tested on ~50 natural sentences |
+| `pi/dialog.py` + `pi/events/atlas.txt` | Gemini replies with the Atlas event persona; tested live (~0.7–1 s) |
+| `pi/speech.py`, `pi/voices.py`, `pi/audio.py` | Piper + sox on the Pi; default voice `hazel-clear`; also `kid` (pitch + formant via pyworld) |
+| `pi/gestures.py` | heart / hello signs, fingertip circles → spins; ~21 fps on the Pi |
+| `pi/static/index.html` | buttons, voice picker, heard panel with Roxy's reply, log |
+| `laptop/listen.py` | Moonshine medium-streaming (the largest), `--dry-run`, resends after a reconnect |
+| `pi/camera.py` | still a stub: gestures open the camera themselves; no MJPEG preview yet |
 
-No Python dependency has been installed for this project. Nothing has touched a Pi, a robot, a
-speaker or a mic.
+## Known problems
 
-## Do this next, without any hardware
+**Power (the big one).** The Pi's supply negotiates 3 A, so the Pi 5 allows only **600 mA** for
+all USB ports together. Camera + speaker go over it: the Pi cuts every USB port for a moment
+(`over-current change` in `journalctl -k`), a reply goes silent and the camera drops. Twice the
+camera then stuck in a reset loop (USB disconnect every 3–4 s) and once it stopped answering
+until physically replugged. **Fix: the official 27 W (5 A) supply, or a powered USB hub for the
+camera and speaker.** Not `usb_max_current_enable=1` on the 3 A supply: the Pi itself may brown
+out. Until then, `GESTURES=0` in the Pi's `.env` takes the camera out of the picture.
 
-Most of the work doesn't need the Pi or the dog. **Piper, sox, MediaPipe and OpenCV all run on
-the laptop**, which is x86 Linux, and `pi/server.py` has no Pi-specific code in it.
+**The Pi dropped off the network twice** under load (ping answered, ssh and the page didn't);
+probably the same power problem. Cause not confirmed.
 
-1. **Run stage 1 entirely on the laptop.** Make a venv, install `requirements-pi.txt`, download
-   one Piper voice, set `ALSA_DEVICE=default` in `.env`, start `pi/server.py`, open
-   `http://localhost:8080` and press the button. This exercises the server, the WebSocket, the
-   page, Piper, sox and the voice library — everything except the robot and the Pi's sound card.
-   Expect to find bugs here; none of this has executed.
-2. **Then the mic half, also on the laptop.** `scripts/laptop-setup.sh`, then `laptop/listen.py`
-   with `PI_URL=ws://localhost:8080/ws`. Both halves on one machine, talking over localhost.
-   This gets the Moonshine model downloaded while you still have internet, which you will want
-   done before the demo anyway.
-3. **Stage 3 against the laptop's webcam.** `camera.py` wants `cv2.VideoCapture` on a V4L2
-   index; the laptop's built-in camera is index 0. Nothing about it is Orbbec-specific until you
-   want depth.
-4. **Stage 4 against the laptop's webcam too.** See below — most of it is already written in the
-   parent repo and needs lifting, not writing.
+**Gesture false triggers.** The `hello` class (19) fires on ordinary open hands; palm and stop
+were mapped to the wave and removed again for that reason. Not yet done: a confidence floor
+(~0.9) and a longer hold (~1 s, 80% of 20 frames) in `gestures.Trigger`.
 
-That leaves only stage 2 (the robot link) genuinely blocked on hardware, plus the Pi-specific
-parts: ALSA device names, arm64 wheel availability, and performance.
+**The dog refuses tricks unless standing** (code -1 / 401001). The page log says "refused by the
+robot ... is it standing?". Say "Roxy, stand up" first. The Unitree app being connected also
+blocks the Pi (one WebRTC client at a time).
+
+**The laptop ↔ Pi WebSocket** occasionally timed out while the Pi was busy (camera + hand
+tracking + voice at ~120% CPU); `listen.py` now waits 60 s for a ping and resends after a
+reconnect.
 
 ## Decisions already made, and why
 
-**No ROS, no Docker.** The parent project needs ROS because it moves camera frames and odometry
-between three machines. This has one machine and a button. Plain Python is faster to debug over
-ssh and avoids an arm64 Docker build on a Pi.
+**No ROS, no Docker.** One machine and a button. Plain Python is faster to debug over ssh.
 
-**One asyncio loop, aiohttp.** It serves the page, the WebSocket and (stage 3) the MJPEG stream
-from one process. Synthesis blocks, so it runs in a thread; playback has its own queue in
-`audio.py`.
+**One asyncio loop, aiohttp.** Page, WebSocket and HTTP from one process. Synthesis and Gemini
+run in threads; playback has its own queue in `audio.py`; the camera loop is a thread.
 
-**The button, the mic and the gestures all produce the same intent names** and converge on
-`Demo.do_intent` in `server.py`. One code path, so a new trigger is a few lines.
+**Button, mic and gestures produce the same intent names** and converge on `Demo.do_intent`.
 
-**The mic lives on the laptop.** The Bluetooth mic can't pair to the Pi, but this is the better
-split regardless: only text crosses the Wi-Fi (~50 bytes a sentence against ~32 KB/s for 16 kHz
-audio), Moonshine is CPU-bound and the Pi will be busy with camera frames, and Bluetooth audio
-on a Pi is a known misery (BlueALSA/PipeWire, HFP, pairings that don't survive reboots).
+**The mic lives on the laptop.** Only text crosses the Wi-Fi; Moonshine is CPU-bound and the
+Pi is busy with the camera.
 
-**The laptop decides *whether* a sentence was meant for us; the Pi decides *what it means*.**
-Filtering on the laptop keeps room chatter off the network; the action table stays next to the
-robot code, in one file.
+**Keywords, not Gemini, choose actions.** Deterministic, instant, and works with no internet.
+Gemini can't make the dog do something nobody asked for.
 
-**The Orbbec is the camera, not the Go2's own.** The Go2 sends H.264 over WebRTC and **the Pi 5
-has no hardware H.264 decoder** (HEVC only), so aiortc/PyAV would decode in software while
-MediaPipe also wants CPU. The Orbbec is MJPEG over UVC, far cheaper, and it is the camera that
-actually sees the person pointing. Only take the H.264 path if the demo needs the robot's-eye
-view, and expect to drop resolution and frame rate.
+**Walking needs a clear phrase.** No bare "left", "right", "back", "come": "you're so right" used
+to turn the dog. Anything that isn't walking beats walking in a sentence ("come here and sit"
+sits). Turns are timed: `TURN_GAIN=1.35` (1.2 turned ~80°), 0.8 rad/s; "turn around" is 360°.
 
-**The speaker is on the Pi.** See "Unverified" below — this is not a free choice yet.
+**The Orbbec is the camera, not the Go2's own.** The Pi 5 has no hardware H.264 decoder.
 
-**`LocalAP`, never `Remote`.** `Remote` goes through Unitree's cloud with an email and password,
-which defeats the whole point. `LocalSTA` with `GO2_IP` is kept for development on a router.
+**`LocalSTA` on a shared router**, not the robot's AP: the venue Wi-Fi gives the Pi internet for
+Gemini. `LocalAP` still works (`GO2_IP=192.168.12.1`), but then no Gemini.
 
-## Stages
+## Hard-won details
 
-### Stage 1 — button to speech. *Code written, never run.*
-
-Laptop button → Pi → Piper → speaker. No robot needed, and `server.py` deliberately never
-blocks on the robot connection, so this demos with Roxy switched off.
-
-Do it on the laptop first (above). On the Pi afterwards: `scripts/setup-pi.sh`, then `aplay -L`
-to find the card and put it in `.env` as `ALSA_DEVICE`. `plughw:...` rather than `hw:...` so
-ALSA converts the clip's rate and channels to whatever the card accepts.
-
-### Stage 2 — the robot link. *Code written, never run. Needs the robot.*
-
-`pi/robot.py` connects with `WebRTCConnectionMethod.LocalAP` plus the AES key, switches the
-robot into `normal` motion mode, and sends sport-mode actions by name.
-
-- Firmware ≥ 1.1.15 needs the per-device AES-128 key. Copy `GO2_AES_KEY` from the parent repo's
-  `.env`, or fetch it with
-  `../../webrtc/unitree_webrtc_connect/examples/fetch_aes_key.py` while on the same network.
-- **Sport commands are silently ignored in `ai` motion mode.** `connect()` switches to `normal`
-  and waits 5 s for the robot to stand. This is an easy hour to lose.
-- `move(x, y, z)` is a **single shot**, not a stream. The Go2 keeps walking until the next
-  command, so anything driving it continuously has to keep sending them (or send `stop`).
-  Relevant the moment gestures drive it.
-- Command IDs came from `../../webrtc/unitree_webrtc_connect/unitree_webrtc_connect/constants.py`
-  (`SPORT_CMD`, around line 123) and the shape of a request from
-  `examples/go2/data_channel/sportmode/`.
-
-First thing to run once the robot is on, because it settles an open question in thirty seconds:
-
-```python
-from unitree_webrtc_connect.webrtc_audiohub import WebRTCAudioHub
-print(await WebRTCAudioHub(conn).get_audio_list())
-```
-
-### Stage 3 — the camera. *Stub.*
-
-Orbbec Gemini 335 colour frames on the Pi, and an MJPEG endpoint so the laptop browser can see
-what the Pi sees (aiohttp `StreamResponse`, multipart/x-mixed-replace).
-
-- Colour over plain UVC should need no Orbbec SDK — `cv2.VideoCapture` with the MJPEG fourcc.
-  Only depth would need `pyorbbecsdk`, and nothing here wants depth.
-- Keep **one** frame in a one-slot buffer filled by a grabber thread, so a slow consumer drops
-  frames instead of falling behind. A queue here means growing latency.
-- The parent repo's `scripts/orbbec_view.py` already serves an MJPEG preview with the camera's
-  FOV drawn on — read it before writing this.
-- **Found on the Pi (2026-11-21):** colour is `/dev/video6` (MJPG/YUYV, 640x480); 0 is depth,
-  2 and 4 are IR. The number can move, so use
-  `/dev/v4l/by-id/usb-Orbbec_R__Orbbec_Gemini_335_CP06563000FH-video-index0`.
-- **The FYP's `deictic-pi-1` container owns the camera** (ROS 2 orbbec node, starts at boot,
-  `/orbbec/color/image_raw` on domain 30). Stop it first: `sudo docker stop deictic-pi-1`. After it
-  stops, the colour interface is left without a driver (only depth and IR show up) until the
-  camera is replugged, or re-attached in software:
-  `echo 0 | sudo tee /sys/bus/usb/devices/5-1/authorized; echo 1 | sudo tee /sys/bus/usb/devices/5-1/authorized`
-
-### Stage 4 — hand pose. *Stub. Mostly already written — lift, don't write.*
-
-**Do not start from `../../hand-gesture-recognition-mediapipe`.** The parent repo already has a
-working, documented node that does this:
-`../Diectic-VLA-FYP/ros_ws/src/go2_gesture/scripts/gesture_teleop.py`, 592 lines, with the three
-model files it actually needs already trimmed out into
-`../Diectic-VLA-FYP/ros_ws/src/go2_gesture/model/` (`hand_landmarker.task`,
-`keypoint_classifier.tflite`, `keypoint_classifier_label.csv`).
-
-Most of those 592 lines are ROS plumbing you don't want. The parts to lift:
-
-| in `gesture_teleop.py` | what it is |
-|---|---|
-| `_KeyPointClassifier` (l. 99) | the TFLite MLP wrapper, on `ai-edge-litert` |
-| `_landmark_list` / `_preprocess` (l. 117, 125) | landmarks → the classifier's input vector |
-| `_finger_sign` (l. 137) | which fingers are straight, by rules |
-| `_is_heart` (l. 163) | the two-hand sign |
-| `GESTURE_CMD` (l. 77) | sign → velocity; map these onto `commands.py` intents instead |
-| `update_gesture` / `command` (l. 406, 411) | the smoothing window |
-
-Two hard-won details recorded in its docstring, worth not rediscovering:
-
-- **The classifier gets thumbs-up wrong.** On MediaPipe's own sample photos it called a thumbs up
-  "call" and open hands "dislike" at 0.99 confidence. The finger *rules* got all of them right,
-  which is why the trick mode uses rules and not the classifier.
-- **A sign must be held** for most of a history window before it fires, and fires again only
-  after the hand is lowered and a cooldown passes. Without this, a hand passing through a pose on
-  its way somewhere else triggers it.
-- `mirror: true` in its config flips the frame horizontally so left/right match yours when you
-  are facing the dog. You will want the same.
-
-The parent repo installs this as `mediapipe` + `ai-edge-litert` (a much smaller runtime than
-full TensorFlow — `../Diectic-VLA-FYP/docker/ros/Dockerfile`, lines 73-76). Use the same on the
-Pi; `requirements-pi-vision.txt` already lists it.
-
-## Unverified — do not repeat these as fact
-
-**Whether the Go2 Air has a usable speaker.** The Pro and EDU have a 3W speaker in the head, per
-reseller spec listings (not Unitree's own sheet). The Air is not covered by any source found.
-Separately, several developers report the Go2's speaker is **not open to custom code even on the
-models that have it**, and at least one group exhibiting a Go2 used external speakers instead.
-`WebRTCAudioHub` exposes `upload_audio_file` / `play_by_uuid`, which is where the idea came
-from — but that is the library's protocol support for the Go2 family, not proof about this
-variant's hardware. The parent project bolting a USB sound card and a 3.5 mm speaker onto the Pi
-is itself evidence that this was tried and didn't work.
-
-Settle it with the `get_audio_list()` call in stage 2. **Nothing in this project depends on the
-answer** — the Pi speaker is the design, and the robot's own speaker would only ever be a bonus.
-
-**Which band the Go2's AP uses.** If it is 2.4 GHz, the Bluetooth mic and the laptop's link to
-the Pi compete on the same radio. Combo chips time-slice and it usually works, but expect
-occasional audio dropouts under load. If the AP is 5 GHz this is a non-issue. Check when you
-have the robot.
-
-**Which Bluetooth profile the mic negotiates.** Recording uses HFP, not A2DP (A2DP is
-playback-only). HFP gives either 8 kHz CVSD, which will noticeably hurt transcription, or 16 kHz
-mSBC, which is fine. `pactl list sources | grep -A3 'Name.*bluez'`.
-
-**arm64 wheels.** `piper-tts`, `mediapipe` and `ai-edge-litert` all need to install on the Pi's
-Python. The parent project installs all three in an arm64 container, so they exist, but not for
-this exact Python version necessarily.
-
-## The network
-
-The Go2 in AP mode is always `192.168.12.1` and runs DHCP. The Pi has one Wi-Fi radio, so when
-`wlan0` is on the robot's AP the Pi has no other network.
-
-- **development**: Pi `wlan0` on your router; `apt` and `pip` work.
-- **demo**: Pi `wlan0` and the laptop both on the robot's AP. Nothing else needed.
-- If you ever need both at once: Pi `wlan0` → robot AP, Pi `eth0` → router. One cable.
-
-Give the Pi a **static address** on `192.168.12.0/24`, or set up avahi. On DHCP the Pi moves and
-the laptop can't find it; `PI_URL` in `.env` has to point somewhere stable.
+- **MCF mode.** Firmware ≥ 1.1.7 runs `mcf` and rejects a switch to `normal` (7004). The sport
+  IDs we use are the same in both; `robot.py` leaves `mcf` alone.
+- **Move is not one-shot.** The Go2 stops shortly after the last Move, so timed motions stream
+  Move at 10 Hz, then send zero + StopMove. "stop" cancels them.
+- **Camera path.** Don't use `/dev/v4l/by-id/...-index0`: after a USB reset it landed on the depth
+  stream. `CAMERA_DEVICE=orbbec` finds the colour stream as UVC interface `…:1.4`, index 0.
+- **The FYP's `deictic-pi-1` container owns the camera** and starts at boot unless stopped
+  (`sudo docker stop deictic-pi-1`; it then stays stopped across reboots). After stopping it the
+  colour interface can be left without a driver until the camera is replugged.
+- **Gemini** rejects a client timeout under 10 s (400 INVALID_ARGUMENT); showing it the stock
+  reply made it parrot it, so the prompt asks for fresh words.
+- **numpy<2 on the Pi** with `opencv-python` and `opencv-contrib-python` both pinned to 4.11
+  (mediapipe and unitree_webrtc_connect each pull one in; 5.x needs numpy 2).
+- **pyworld and pyaudio** have no arm64 wheels: `setup-pi.sh` installs `build-essential`,
+  `python3-dev`, `portaudio19-dev`. pyworld needs `setuptools<81`.
+- **Laptop 3.5 mm jack + DJI receiver = no mic.** The receiver's TRS plug puts its audio on the
+  headphone contacts of a TRRS combo jack. Use USB or a TRS→TRRS adapter.
 
 ## Not decided
 
-- **How the gesture and the voice interact.** Right now they are independent triggers of the same
-  intents. If a gesture should qualify a spoken word ("go *there*"), that is the parent project's
-  whole research question and does not belong in this demo.
-- **Whether the Pi should drive the robot continuously** from gestures, which needs a command
-  loop rather than one-shot `move()` calls, plus a deadman timeout for when the hand leaves the
-  frame. `gesture_teleop.py` solves exactly this with `no_hand_timeout` — copy its approach.
-- **The Velodyne lidar**, mentioned as a later addition. Nothing here anticipates it.
+- **How gestures and voice interact** beyond being independent triggers.
+- **Continuous driving from gestures** (a command loop with a deadman); FYP's
+  `go2_gesture/scripts/gesture_teleop.py` has `no_hand_timeout` for this.
+- **An MJPEG camera preview** on the page (`camera.py`); FYP's `scripts/orbbec_view.py` has one.
 
 ## Reference
 
 ```sh
-# the Pi (or the laptop, for now)
-bash scripts/setup-pi.sh                  # VISION=1 also installs OpenCV + MediaPipe
-./venv/bin/python pi/server.py
-curl -X POST localhost:8080/say -d 'hello' # speak without a browser
+# the Pi (ssh fyp@raspberrypi.local)
+cd ~/roxy-pi-demo
+pkill -9 -f "^./venv/bin/python"                                   # stop (plain pkill can hang)
+nohup ./venv/bin/python -W ignore pi/server.py > ~/roxy-server.log 2>&1 &
+tail -f ~/roxy-server.log                                          # "robot connected", "Gemini replies on"
+curl -X POST localhost:8080/say -d 'hello'                         # speak without a browser
+journalctl -k -f | grep -i -E 'over-current|disconnect'            # USB power trouble
 
 # the laptop
-bash scripts/laptop-setup.sh
-./venv-laptop/bin/python laptop/listen.py
-./venv-laptop/bin/python laptop/listen.py --no-wake   # quiet room: send everything
-python3 -m sounddevice                                # list mics, for MIC_DEVICE
+./venv-laptop/bin/python laptop/listen.py            # --dry-run: hear without acting
+./venv-laptop/bin/python -m sounddevice              # list mics, for MIC_DEVICE
 ```
 
-`.env` keys are documented in `.env.example`. `VOICE` is any of the 103 names in `pi/voices.py`
-(`scooby`, `robot`, or `<speaker>-<style>`), changeable live from the page's dropdown; `clear` is
-the most intelligible style and all 100 generated voices have `punch` on for a noisy room.
+`.env` keys are documented in `.env.example`. The Pi's `.env` holds `GO2_AES_KEY`,
+`GEMINI_API_KEY`, `GO2_IP=192.168.0.211`, `VOICE=hazel-clear`, `GESTURES=1`,
+`CAMERA_DEVICE=orbbec`, `TURN_GAIN=1.35`, `GEMINI_EVENT=atlas`. Never put keys in `.env.example`.
