@@ -48,7 +48,7 @@ def env(name, default=""):
 class Demo:
     def __init__(self):
         self.voice_name = env("VOICE", "robot")
-        self.sentence = env("SENTENCE", "Ruh-roh! Hello everyone, I am Roxy.")
+        self.sentence = env("SENTENCE", "Ruh-roh! Hello everyone, I am Rocky.")
         self.voices = speech.Voices(env("PIPER_VOICES_DIR", "./piper-voices"))
         self.spec = voices.spec_of(self.voice_name)
         self.speaker = Speaker(env("ALSA_DEVICE", "default"), float(env("GAIN_DB", "0") or 0))
@@ -60,7 +60,8 @@ class Demo:
         self.dialog = dialog.Dialog(env("GEMINI_API_KEY"), env("GEMINI_MODEL", "gemini-3.5-flash-lite"),
                                     int(env("GEMINI_MAX_WORDS", "30") or 30),
                                     float(env("GEMINI_TIMEOUT", "10") or 10),
-                                    event=env("GEMINI_EVENT"))
+                                    event=env("GEMINI_EVENT"),
+                                    fallback=env("GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite"))
 
     # --- the one place a command is carried out ---------------------------------------------
     async def say(self, text: str) -> None:
@@ -122,8 +123,8 @@ class Demo:
         if intent != "stop" and self.speaker.busy():
             # the mic hears Roxy too: never answer her own voice ("I'm Roxy!" has the wake word)
             await self.broadcast({"type": "heard", "text": text, "wake": True, "intent": None,
-                                  "note": "ignored: Roxy was talking"})
-            await self.log(f"heard while Roxy was talking, ignored: {text!r}")
+                                  "note": "ignored: Rocky was talking"})
+            await self.log(f"heard while Rocky was talking, ignored: {text!r}")
             return
         await self.broadcast({"type": "heard", "text": text, "wake": True, "intent": intent})
         await self.log(f"heard: {text!r} -> {intent or ('chat' if self.dialog.on else 'ignored')}")

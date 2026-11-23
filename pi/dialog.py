@@ -16,18 +16,22 @@ GEMINI_TIMEOUT, and GEMINI_EVENT: the name of a file in pi/events/ (atlas -> eve
 describing today's event and audience, added to the persona. Empty: no event.
 """
 
+import concurrent.futures
 import logging
 import pathlib
 import time
 
 EVENTS_DIR = pathlib.Path(__file__).parent / "events"
+# The main model under "high demand" answers in ~9 s or 503s (seen live 2026-11-21). After this
+# long without an answer, ask the fallback model as well and take whichever answers first.
+RACE_AFTER = 3.0
 
 log = logging.getLogger(__name__)
 
 PERSONA = """\
-You are Roxy, a young, playful and charismatic robot dog (a Unitree Go2) at a live demo.
+You are Rocky, a young, playful and charismatic robot dog (a Unitree Go2) at a live demo.
 People talk to you through a microphone; each message is a speech-to-text transcript, so it can
-contain recognition mistakes, and your name in it may come out as "Roxas", "Proxy" or "rocks".
+contain recognition mistakes, and your name in it may come out as "Ricky", "Rocco" or "rocks".
 Each message tells you what was heard and what your body is doing about it:
 - If you are doing an action, confirm it in one short, lively sentence (at most ten words).
   Another system moves your body; never say you can't do it.
@@ -43,8 +47,11 @@ start with your own name. Be kind and correct first, funny second; if you don't 
 
 class Dialog:
     def __init__(self, api_key: str, model: str = "gemini-3.5-flash-lite", max_words: int = 30,
-                 timeout: float = 10.0, history_turns: int = 4, event: str = ""):
+                 timeout: float = 10.0, history_turns: int = 4, event: str = "",
+                 fallback: str = ""):
         self.model, self.max_words, self.history_turns = model, max_words, history_turns
+        self.fallback = fallback if fallback and fallback != model else ""
+        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="gemini")
         self.system = PERSONA.format(max_words=max_words)
         if event:
             path = EVENTS_DIR / f"{pathlib.Path(event).name}.txt"  # a name, never a path
@@ -85,18 +92,46 @@ class Dialog:
             if action else "Action: none, this is conversation.")
         t0 = time.monotonic()
         try:
-            text = self._ask(prompt)
+            text, model = self._ask_racing(prompt)
         except Exception as e:
             log.error("Gemini failed (%s): fixed reply instead", e)
             return fallback
         text = " ".join(text.replace("*", "").split())
         if not text:
             return fallback
-        log.info("gemini %.1f s: %r", time.monotonic() - t0, text)
+        log.info("gemini %.1f s%s: %r", time.monotonic() - t0,
+                 "" if model == self.model else f" ({model})", text)
         self.history = (self.history + [(prompt, text)])[-self.history_turns:]
         return text
 
-    def _ask(self, prompt: str) -> str:
+    def _ask_racing(self, prompt: str) -> tuple[str, str]:
+        """The main model's answer; if it fails, or is still thinking after RACE_AFTER s, the
+        fallback model is asked too and the first good answer wins. Returns (text, model)."""
+        def ask(model):
+            return self._ask(prompt, model), model
+        first = self.pool.submit(ask, self.model)
+        if not self.fallback:
+            return first.result()
+        try:
+            return first.result(timeout=RACE_AFTER)
+        except concurrent.futures.TimeoutError:
+            log.warning("%s slow; asking %s too", self.model, self.fallback)
+        except Exception as e:
+            log.warning("%s failed (%s); asking %s", self.model, e, self.fallback)
+            return ask(self.fallback)
+        pending, error = {first, self.pool.submit(ask, self.fallback)}, None
+        while pending:
+            done, pending = concurrent.futures.wait(
+                pending, return_when=concurrent.futures.FIRST_COMPLETED)
+            for f in done:
+                try:
+                    return f.result()
+                except Exception as e:
+                    error = e
+        raise error
+
+    def _ask(self, prompt: str, model: str | None = None) -> str:
+        model = model or self.model
         types = self.types
         contents = []
         for said, answered in self.history:
@@ -112,7 +147,7 @@ class Dialog:
             except Exception:  # older google-genai without thinking_level
                 self.thinking = ""
         try:
-            response = self.client.models.generate_content(model=self.model, contents=contents,
+            response = self.client.models.generate_content(model=model, contents=contents,
                                                            config=config)
         except Exception as e:
             if not self.thinking or "thinking" not in str(e).lower():
@@ -120,6 +155,6 @@ class Dialog:
             log.warning("%s rejected thinking_level, retrying without it", self.model)
             self.thinking = ""
             config.thinking_config = None
-            response = self.client.models.generate_content(model=self.model, contents=contents,
+            response = self.client.models.generate_content(model=model, contents=contents,
                                                            config=config)
         return response.text or ""

@@ -46,6 +46,7 @@ class Go2:
         self.ready = False
         self.motion: asyncio.Task | None = None
         self.last_code = None  # the robot's status code for the last request (0 = done)
+        self.last_error = None  # the last connect failure, so a retry loop logs it once
 
     async def connect(self) -> bool:
         from unitree_webrtc_connect.constants import RTC_TOPIC
@@ -55,22 +56,62 @@ class Go2:
         kwargs = {"aes_128_key": self.aes_key} if self.aes_key else {}
         if self.method == "LocalSTA":
             kwargs["ip"] = self.ip
+        if self.ip and not await self._signaling_open(self.ip):
+            # the library probes these ports with blocking sockets (~3 s on the event loop per
+            # try when the robot is off), so only hand over once one answers
+            if self.last_error != "unreachable":
+                log.error("robot not reachable at %s (off, or not on this Wi-Fi); retrying", self.ip)
+            self.last_error, self.ready = "unreachable", False
+            return False
         try:
             self.conn = UnitreeWebRTCConnection(method, **kwargs)
             await self.conn.connect()
             await self._normal_mode(RTC_TOPIC)
-            self.ready = True
+            self.ready, self.last_error = True, None
             log.info("robot connected (%s)", self.method)
         except Exception as e:  # a demo without the robot still speaks, so never fatal
-            log.error("robot not connected (%s): %s", self.method, e)
-            self.ready = False
+            if str(e) != self.last_error:  # once per kind of failure, not every retry
+                log.error("robot not connected (%s): %s", self.method, e)
+            self.last_error, self.ready = str(e), False
             await self.close()  # don't leave a half-open peer behind before the next try
         return self.ready
 
+    @staticmethod
+    async def _signaling_open(ip: str, timeout: float = 1.5) -> bool:
+        """Whether the robot's WebRTC signaling port (9991 new firmware, 8081 old) accepts a
+        connection, checked without blocking the event loop."""
+        for port in (9991, 8081):
+            try:
+                _, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout)
+                writer.close()
+                return True
+            except (OSError, asyncio.TimeoutError):
+                pass
+        return False
+
+    @property
+    def alive(self) -> bool:
+        """The data channel is still open. It closes when the robot drops off the Wi-Fi or is
+        switched off, while `ready` would otherwise stay True from the first connect."""
+        dc = getattr(self.conn, "datachannel", None)
+        return bool(dc is not None and getattr(dc, "data_channel_opened", False))
+
+    def _check_link(self) -> None:
+        if self.ready and not self.alive:
+            log.warning("robot link lost; reconnecting every few seconds")
+            self.ready = False
+            self._cancel_motion()
+
     async def connect_forever(self, every: float = 5.0) -> None:
-        """Retry until connected. The robot takes one WebRTC client at a time and holds on to a
-        client that vanished (a killed server) for a while, so the first tries can be refused."""
-        while not await self.connect():
+        """Keep the robot connected for the life of the server: retry until it answers, then
+        watch the link and reconnect when it drops. The robot takes one WebRTC client at a time
+        and holds on to a client that vanished (a killed server) for a while, so the first tries
+        can be refused."""
+        while True:
+            self._check_link()
+            if not self.ready:
+                await self.close()
+                await self.connect()
             await asyncio.sleep(every)
 
     async def _normal_mode(self, RTC_TOPIC) -> None:
@@ -101,6 +142,7 @@ class Go2:
         from unitree_webrtc_connect.constants import RTC_TOPIC
         if name in ("turn", "walk", "stop"):
             self._cancel_motion()
+        self._check_link()
         if not self.ready or name not in ACTIONS and name not in ("turn", "walk"):
             log.warning("ignored action %r (ready=%s)", name, self.ready)
             return False

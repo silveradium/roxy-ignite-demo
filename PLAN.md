@@ -13,7 +13,29 @@ so decisions already settled don't get reopened. The parent project is
 "Hey roxy ..." spelled right from across the room. Background chatter / videos produce
 made-up sentences ("visit our website ..."); the wake filter drops them. macOS: no apt —
 `laptop-setup.sh` now handles Darwin (Python 3.11 venv, the sounddevice wheel bundles PortAudio).
-The first open of the DJI once hung; a retry worked. Next: a live run with the Pi on.
+The first open of the DJI once hung; a retry worked.
+
+**Same day, live with the Pi + robot (venue Wi-Fi SLTEVENTS).** Voice → Pi → robot works (sit,
+stand, dance; Gemini ~1 s). Found and fixed in `pi/robot.py`: after a dropped link it never
+reconnected (`connect_forever` stopped after the first success; now it watches the data channel
+for the server's life), and while the robot was off the library's blocking port probe froze the
+loop ~3 s per retry (now an async pre-check). Still open:
+- **Gesture `hello` false-fires every ~8 s**, which keeps Roxy talking so voice commands are
+  dropped as her own voice. `GESTURES=0` on the Pi for now; the confidence floor + hold is due.
+- **Power: the Pi lost power twice** (journal ends with no shutdown, over-current #6 before it)
+  with the camera plugged in even with gestures off. Unplug the Orbbec or fix the supply.
+- **Wi-Fi:** on 2.4 GHz the Pi had 5% loss, a 20 s roam between APs, Gemini at 6 s or a 504.
+  After the reboot it joined 5 GHz (-55 dBm) and all of that went away.
+- **"Robot is connected by another WebRTC client"** for ~90 s after a robot power-up; it
+  cleared by itself (probably the Unitree app). An unknown 192.168.0.9 once sent `hello`
+  intents every 9 s over the page's WebSocket.
+- New mishearing: "heroxy" (added to `NAMES`).
+- **Renamed Roxy → Rocky** (wake words in `listen.py`, persona, fixed lines, page, `SENTENCE`):
+  "Roxy" was misheard too often. Old Roxy wake words are gone. Sound-alikes needing "hey":
+  ricky, rocco, rocket, rock, rocks, lucky.
+- **Gemini under "high demand"** (9–10 s or 503). `dialog.py` now also asks
+  `GEMINI_FALLBACK_MODEL` (gemini-3.1-flash-lite) after 3 s and takes the first answer;
+  `GEMINI_TIMEOUT=15` on the Pi.
 
 ## Pick up here: the mic on the other laptop
 

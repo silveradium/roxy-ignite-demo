@@ -27,7 +27,7 @@ COMMANDS = {
     "hello": ({"hello", "hi", "wave", "waving", "say hi"}, ("hello", None), "Hello there!"),
     "heart": ({"heart", "finger heart", "love you"}, ("heart", None),       "Love you too!"),
     "greet": ({"introduce yourself", "who are you", "your name", "about yourself"}, (None, None),
-              "Ruh-roh! Hello everyone, I am Roxy."),
+              "Ruh-roh! Hello everyone, I am Rocky."),
     # tricks: the dog needs to be standing, with a metre of room around it
     "dance": ({"dance", "dancing", "dance for us", "show us a dance"}, ("dance1", None),
               "Let's dance!"),
@@ -46,7 +46,7 @@ COMMANDS = {
               ("turn", {"deg": 90}), "Turning left."),
     "right": ({"turn right", "go right", "to the right", "right turn"},
               ("turn", {"deg": -90}), "Turning right."),
-    "around": ({"turn around", "spin around", "full circle", "go around", "going around"},
+    "around": ({"turn around", "turnaround", "spin around", "full circle", "go around", "going around"},
                ("turn", {"deg": 360}), "Spinning around!"),
     # also drawn in the air with a pointing finger (gestures.MOTION_INTENTS). "counter clockwise"
     # contains "clockwise", but the longer keyword wins.

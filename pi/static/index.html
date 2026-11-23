@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Roxy</title>
+<title>Rocky</title>
 <!-- No CDNs anywhere: on the robot's AP there is no internet, so everything is inline. -->
 <style>
   :root { color-scheme: dark; --bg:#12141a; --fg:#e9ecf2; --dim:#8b93a7; --line:#262a35; --on:#4ade80; --off:#f87171; }
@@ -45,7 +45,7 @@
 </style>
 
 <div class="wrap">
-  <h1>Roxy</h1>
+  <h1>Rocky</h1>
   <div class="row dim">
     <span class="dot" id="d-link"></span><span id="s-link">connecting</span>
     <span class="dot" id="d-robot"></span><span id="s-robot">robot</span>
@@ -53,7 +53,7 @@
   </div>
 
   <fieldset><legend>heard (laptop mic)</legend>
-    <div id="heard-now" class="idle">Nothing yet. Say "Roxy, sit down".</div>
+    <div id="heard-now" class="idle">Nothing yet. Say "Rocky, sit down".</div>
     <div id="heard-tag"></div>
     <div id="heard-reply" class="dim"></div>
     <ul id="heard-list"></ul>
@@ -120,7 +120,7 @@ function render(s) {
 // What the laptop mic heard: the latest sentence big, then a short history.
 function result(m) {
   if (m.note) return { text: m.note, go: false };
-  if (!m.wake) return { text: "ignored: no \u201cRoxy\u201d", go: false };
+  if (!m.wake) return { text: "ignored: no \u201cRocky\u201d", go: false };
   return m.intent ? { text: "\u2192 " + m.intent, go: true } : { text: "no command", go: false };
 }
 function heard(m) {
@@ -159,7 +159,7 @@ function connect() {
     if (msg.type === "state") render(msg);
     else if (msg.type === "log") line(msg.text);
     else if (msg.type === "heard") heard(msg);
-    else if (msg.type === "reply") $("heard-reply").textContent = "Roxy: " + msg.text;
+    else if (msg.type === "reply") $("heard-reply").textContent = "Rocky: " + msg.text;
   };
 }
 

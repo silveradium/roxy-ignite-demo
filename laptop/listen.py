@@ -27,8 +27,8 @@ import queue
 import re
 import sys
 
-NAMES = ["roxy", "roxie", "roxi", "rocksy", "roxey", "roxas", "proxy"]  # proxy, roxas: heard at the venue
-LOOSE = ["rocky", "foxy", "rox", "rocks", "oxy"]          # need a prefix in front
+NAMES = ["rocky", "rockie", "rocki", "rockey", "roki", "rokey", "heyrocky"]  # renamed from Roxy 2026-11-21: misheard too often
+LOOSE = ["ricky", "rocco", "rocket", "rock", "rocks", "lucky"]  # need a prefix in front
 PREFIXES = ["hey", "hi", "hay", "hello", "ok", "okay", "oi"]
 STOP_WORDS = {"stop", "halt", "freeze"}                    # never need the wake word
 
@@ -111,8 +111,10 @@ async def main() -> int:
     try:
         while True:  # the AP drops, the Pi reboots: reconnect rather than die
             try:
-                # lenient keepalive: the Pi (camera + hand tracking + voice) can be slow to answer a ping
-                async with websockets.connect(args.url, ping_interval=20, ping_timeout=60) as ws:
+                # A silent Wi-Fi drop is only noticed when a ping goes unanswered, and anything said
+                # meanwhile waits for that (60 s here once delayed a command by most of a minute).
+                # 15 s still covers a busy Pi; raise it if the camera + hand tracking come back on.
+                async with websockets.connect(args.url, ping_interval=5, ping_timeout=15) as ws:
                     print("connected to the Pi")
                     while True:
                         text = await asyncio.to_thread(lines.get)
